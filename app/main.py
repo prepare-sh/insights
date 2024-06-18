@@ -66,7 +66,7 @@ class JobScraper:
             self.db = self.client.insights
             logger.info("Connected to MongoDB")
         except pymongo.uri_parser.InvalidURI:
-            logger.error("Failed to connect to MongoDB - Invalid URI")
+            logger.warning("Failed to connect to MongoDB - Invalid URI")
         
 
     def get_with_retry(self, url, retries=3, delay=1):
