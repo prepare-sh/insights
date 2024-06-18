@@ -1,0 +1,8 @@
+# Ignore everything in the root directory
+/*
+
+# Keep these specific files and directories
+!.gitignore
+!.github/
+!README.md
+!app/

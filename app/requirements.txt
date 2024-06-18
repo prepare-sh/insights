@@ -1,0 +1,6 @@
+requests
+beautifulsoup4
+pymongo
+langdetect
+pandas
+python-dotenv
