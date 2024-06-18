@@ -1,0 +1,4 @@
+ERROR - Failed to connect to MongoDB - Invalid URI
+INFO - Total job cards scraped: 70
+INFO - Total job cards after removing duplicates: 51
+INFO - Total job cards after removing irrelevant jobs: 46

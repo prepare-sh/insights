@@ -4,3 +4,4 @@ pymongo
 langdetect
 pandas
 python-dotenv
+logging
