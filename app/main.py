@@ -154,7 +154,7 @@ class JobScraper:
 
     def get_jobcards(self):
         all_jobs = []
-        for k in range(0, self.config['rounds']):
+        for k in range(0, self.config['rounds']) :
             for query in self.config['search_queries']:
                 keywords = quote(query['keywords']) # URL encode the keywords
                 location = quote(query['location']) # URL encode the location
