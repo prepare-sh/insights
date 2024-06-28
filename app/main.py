@@ -13,25 +13,17 @@ import ast
 from itertools import groupby
 from dotenv import load_dotenv
 import logging
+import re
 
 
 logger = logging.getLogger("MyLogger")
 logger.setLevel(logging.DEBUG)
 
-#handlers
-console_handler = logging.StreamHandler()
-console_handler.setLevel(logging.DEBUG)
 
 file_handler = logging.FileHandler("test.log", mode = "w")
 file_handler.setLevel(logging.DEBUG)
+file_handler.setFormatter('%(levelname)s - %(message)s')
 
-#formatter
-formatter = logging.Formatter('%(levelname)s - %(message)s')
-console_handler.setFormatter(formatter)
-file_handler.setFormatter(formatter)
-
-#adding handlers
-logger.addHandler(console_handler)
 logger.addHandler(file_handler)
 
 
@@ -64,7 +56,7 @@ class JobScraper:
         try:
             self.client = pymongo.MongoClient(self.mongo_uri)
             self.db = self.client.insights
-            logger.info("Connected to MongoDB")
+            print("Connected to MongoDB")
         except pymongo.uri_parser.InvalidURI:
             logger.warning("Failed to connect to MongoDB - Invalid URI")
         
@@ -90,7 +82,7 @@ class JobScraper:
         try:
             divs = soup.find_all('div', class_='base-search-card__info')
         except:
-            logger.info("Empty page, no jobs found")
+            print("Empty page, no jobs found")
             return joblist
         for item in divs:
             title = item.find('h3').text.strip()
@@ -114,12 +106,14 @@ class JobScraper:
                 'job_description': job_description,
                 'role': self.config['role'],
                 'searchLoc' : searchedFrom,
-                'stack': []
+                'stack': [],
+                'applied' : 0
             }
             joblist.append(job)
         return joblist
 
     def transform_job(self, soup):
+        
         div = soup.find('div', class_='description__text description__text--rich')
         if div:
             for element in div.find_all(['span', 'a']):
@@ -135,7 +129,7 @@ class JobScraper:
             return text
         else:
             return "Could not find Job Description"
-
+            
     def remove_irrelevant_jobs(self, joblist):
         new_joblist = [job for job in joblist if not any(word.lower() in job['job_description'].lower() for word in self.config['desc_words'])]
         new_joblist = [job for job in new_joblist if not any(word.lower() in job['title'].lower() for word in self.config['title_exclude'])] if len(self.config['title_exclude']) > 0 else new_joblist
@@ -160,7 +154,7 @@ class JobScraper:
 
     def get_jobcards(self):
         all_jobs = []
-        for k in range(0, self.config['rounds']):
+        for k in range(0, self.config['rounds']) :
             for query in self.config['search_queries']:
                 keywords = quote(query['keywords']) # URL encode the keywords
                 location = quote(query['location']) # URL encode the location
@@ -171,13 +165,42 @@ class JobScraper:
                     all_jobs.extend(jobs)
                     print("Finished scraping page: ", url)
                     time.sleep(self.config['delay_between_requests'])
-        logger.info(f"Total job cards scraped: {len(all_jobs)}")
+        print(f"Total job cards scraped: {len(all_jobs)}")
         all_jobs = self.remove_duplicates(all_jobs)
-        logger.info(f"Total job cards after removing duplicates: {len(all_jobs)}")
+        print(f"Total job cards after removing duplicates: {len(all_jobs)}")
         all_jobs = self.remove_irrelevant_jobs(all_jobs)
-        logger.info(f"Total job cards after removing irrelevant jobs: {len(all_jobs)}")
+        print(f"Total job cards after removing irrelevant jobs: {len(all_jobs)}")
         return all_jobs
 
+    def getCount(self, soup):
+        tag = soup.find('span', class_= "num-applicants__caption")
+        if tag:
+            text = tag.get_text(strip=True)
+            number = re.search(r'\b(\d+)\b', text)
+            if number:
+                extracted_number = number.group(1)
+                return extracted_number
+            else:
+                print("Count find count of applicants")
+                return 0
+            
+        else:
+            tag = soup.find("figcaption", class_= "num-applicants__caption")
+            if tag:
+                text = tag.get_text(strip=True)
+                number = re.search(r'\b(\d+)\b', text)
+                if number:
+                    extracted_number = number.group(1)
+                    return extracted_number
+                else:
+                    print("Count find count of applicants")
+                    return 0
+            else:
+                print("Count find count of applicants")
+                return 0
+                
+    
+    
     def find_new_jobs(self, all_jobs):
         try:
             jobs_collection = self.db[self.config['jobs_tablename']]
@@ -185,21 +208,22 @@ class JobScraper:
             existing_jobs = list(jobs_collection.find({}, {"title": 1, "company": 1, "date": 1, "job_url": 1}))
             existing_jobs_df = pd.DataFrame(existing_jobs)
             new_joblist = [job for job in all_jobs if not self.job_exists(existing_jobs_df, job)]
-            logger.info(f"Total new jobs found after comparing to the database: {len(all_jobs)}")
+            print(f"Total new jobs found after comparing to the database: {len(all_jobs)}")
             if len(new_joblist) > 0:
                 for job in new_joblist:
                     job_date = self.convert_date_format(job['date'])
                     job_date = datetime.combine(job_date, datetime.min.time())
                     if job_date < datetime.now() - timedelta(days=self.config['days_to_scrape']):
                         continue
-                    logger.info('Found new job: ', job['title'], 'at ', job['company'], job['job_url'])
+                    print(f"Found new job: {job['title']} at {job['company']} {job['job_url']}")
                     desc_soup = self.get_with_retry(job['job_url'])
                     job['job_description'] = self.transform_job(desc_soup)
+                    job['applied'] = self.getCount(desc_soup)
                     self.job_list.append(job)
                     time.sleep(self.config['delay_between_requests'])
 
                 jobs_to_add = self.remove_irrelevant_jobs(self.job_list)
-                logger.info("Total jobs to add: ", len(jobs_to_add))
+                print(f"Total jobs to add: {len(jobs_to_add)}", )
                 filtered_list = [job for job in self.job_list if job not in jobs_to_add]
 
                 jobs_collection = self.db[self.config['jobs_tablename']]
@@ -207,11 +231,11 @@ class JobScraper:
 
                 if jobs_to_add:
                     jobs_collection.insert_many(jobs_to_add)
-                    logger.info(f"Added {len(jobs_to_add)} new records to the {self.config['jobs_tablename']} collection")
+                    print(f"Added {len(jobs_to_add)} new records to the {self.config['jobs_tablename']} collection")
 
                 if filtered_list:
                     filtered_jobs_collection.insert_many(filtered_list)
-                    logger.info(f"Added {len(filtered_list)} new records to the {self.config['filtered_jobs_tablename']} collection")
+                    print(f"Added {len(filtered_list)} new records to the {self.config['filtered_jobs_tablename']} collection")
 
             else:
                 logging.warning("There is no new job")
@@ -220,8 +244,8 @@ class JobScraper:
         except AttributeError:
             logging.info("New jobs could not be recognized due to a failure while connecting to the database.")
             return all_jobs
-        except :
-            logging.error("Error While finding new jobs from database")
+        except Exception as e:
+            logging.error(f"Error While finding new jobs from database : {e}")
             return all_jobs
 
     def job_exists(self, df, job):
@@ -238,7 +262,6 @@ class JobScraper:
 
         if len(all_jobs) == 0:
             logging.error("No jobs were found")
-            
 
         end_time = time.perf_counter()
         logging.info(f"Scraping finished in {end_time - start_time:.2f} seconds")
